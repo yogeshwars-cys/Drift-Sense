@@ -92,16 +92,15 @@ candidate stage, but only ~46% survive ranking to first place.
 python probes/rank_probe.py dataset_primary   # proposal vs ranking split
 ```
 
-### All three splits, current build
+### Both splits, current build
 
 | Split | n | solvable | <=15px | solvable <=15px | s/pair |
 |---|---|---|---|---|---|
 | primary (20% unsolvable, uniform) | 100 | 80 | **49.0%** | **61.2%** | 2.94 |
 | stress (50% unsolvable, uniform) | 100 | 50 | 30.0% | 60.0% | 4.51 |
-| legacy (50% unsolvable, annulus) | 100 | 50 | 28.0% | 56.0% | 4.51 |
 
-The solvable column is stable across all three (61.2 / 60.0 / 56.0) while the
-headline column swings 21 points. That is the point of reporting both: the
+The solvable column barely moves (61.2 vs 60.0) while the headline column swings
+19 points. That is the point of reporting both: the
 headline tracks how much unsolvable material a split contains, not how good the
 matcher is.
 
@@ -181,11 +180,11 @@ entirely. That minority is exactly what `induction.py` detects (13/100 frames, a
 zero false alarms), and it is the reason the magnification is bracketed rather
 than trusted as a point estimate.
 
-The pre-rewrite pipeline scored 44.0% on the legacy split (near-centre
-placement) and 22.0% on primary (uniform placement) -- the same matcher and the
-same generator, differing only in where the true site sits. **Half its headline
-accuracy was the placement assumption**, which is why primary is now the
-default.
+The pre-rewrite pipeline scored 44.0% under near-centre placement and 22.0%
+under uniform placement -- the same matcher and the same generator, differing
+only in where the true site sits. **Half its headline accuracy was the placement
+assumption**, which is why uniform is now the default. (`--placement annulus`
+still reproduces the old behaviour.)
 
 ### Negative results, kept visible
 
@@ -284,12 +283,11 @@ python probes/induction_probe.py --dataset dataset_primary --results primary_res
 
 ## Evaluation distribution
 
-Three splits, because a single number hides the assumption that produced it:
+Two splits, because a single number hides the assumption that produced it:
 
 ```bash
 python dataset_generator.py --n 100 --out dataset_primary --seed 11 --difficulty-mix 0.2 --placement uniform
 python dataset_generator.py --n 100 --out dataset_stress  --seed 22 --difficulty-mix 0.5 --placement uniform
-python dataset_generator.py --n 100 --out dataset_legacy  --seed 42 --difficulty-mix 0.5 --placement annulus
 ```
 
 - **primary** -- the headline. 20% of trials are deep array interior, matching
@@ -299,8 +297,6 @@ python dataset_generator.py --n 100 --out dataset_legacy  --seed 42 --difficulty
 - **stress** -- 50% unsolvable. Retained because failure-mode awareness is
   explicitly graded, but reported separately: half of it is unidentifiable by
   construction, so an accuracy figure over it is not comparable to anything.
-- **legacy** -- what the pre-rewrite numbers were measured on. Kept only so the
-  regression is auditable.
 
 Two further generator flags exist solely to test assumptions rather than to
 produce headline splits. Both are no-ops at their defaults, so every number
@@ -327,58 +323,58 @@ information that was never in the pixels. The system's job there is to *say so*
 
 ## Architecture
 
-**The CNN is a witness, not the judge.** The earlier design asked a learned
-embedding to decide which candidate patch was the true site. In a periodic
-array that question is close to unanswerable from a patch: every candidate is
-~95% identical lattice, so the identity-bearing signal is a few percent of the
-similarity score, and each candidate is scored in isolation even though the
-candidates are mutually exclusive claims about one wafer. The CNN is now one
-evidence channel among five, and the decision is made by reasoning over the
-candidate set as a whole.
+**Candidates compete; nothing is scored in isolation.** An earlier design asked a
+learned embedding to decide which candidate patch was the true site. In a
+periodic array that question is close to unanswerable from a patch: every
+candidate is ~95% identical lattice, so the identity-bearing signal is a few
+percent of the similarity score, and each candidate is judged alone even though
+the candidates are mutually exclusive claims about one wafer. That design was
+measured and dropped (see *On the learned re-ranker*). What ships reasons over
+the candidate set as a whole, with no learned weights.
 
 ```
-Revisit metadata (elapsed_time_s)          Search image + reference (10x)
-        |                                            |
-Digital Twin drift-prior                     Lattice sensor (lattice.py)
-  predicts a search RADIUS,                    2-D spectrum -> pitch,
-  direction unrecoverable from                 orientation, and hence the
-  elapsed time alone                           unknown magnification as
-        |                                      pitch_ref / pitch_search
-        |                                            |
-        |                              +-------------+-------------+
-        |                              |                           |
-        |                    periodic component             APERIODIC RESIDUAL
-        |                    (identical at every            (spectral notch removes
-        |                     lattice cell -> pins          the lattice; array
-        |                     the scale, cannot pin         boundaries, dropped or
-        |                     the identity)                 doubled vias, gate
-        |                              |                    crossings survive)
-        v                              v                           v
-Search window   -->  Stage 1: multi-scale NCC over a scale        landmark
-(annulus)            bracket MEASURED, not swept                  evidence map
-                                       |                           |
-                                       |   <-- residual peaks also PROPOSE
-                                       |       candidates, not just score them
-                                       v
-                          Hypothesis graph (hypothesis_graph.py)
-                          nodes = mutually exclusive candidates
-                          channels: appearance | embedding (CNN) |
-                                    landmark   | twin prior | lattice-phase
-                                    consensus across the node set
-                                       |
-                          softmax across the set -> BELIEF, not score
-                          (sums to 1, has an entropy, competes)
-                                       v
-                          Commit  or  abstain
-                          |                    |
-Sub-pixel refinement      |     "no landmark evidence in FOV" ->
-(parabolic interp)        |     re-image at a second FOV; fall back to the
-        v                 v     minimum-expected-error annulus centroid
-      (x, y), belief, per-channel evidence breakdown
-        |
-Loop 1: match error -> updates the Twin's drift-radius estimate
-Loop 2: (Attribution Matrix, see evaluate.py) -> audits whether failures
-        trace to the Twin's prior or to the re-ranker
+Reference (10x)                              Search image (1x)
+      |                                            |
+      +---------------------+----------------------+
+                            |
+                   Lattice sensor (lattice.py)
+                   2-D spectrum -> pitch, orientation, and hence the
+                   unknown magnification as pitch_ref / pitch_search
+                   Sub-bin multi-harmonic rotation; cross-image phase lock
+                            |
+              +-------------+-------------+
+              |                           |
+      periodic component           APERIODIC RESIDUAL
+      (identical at every          (spectral notch removes the
+       lattice cell -> pins         lattice; array boundaries,
+       the scale, cannot pin        dropped or doubled vias and
+       the identity)                gate crossings survive)
+              |                           |
+              v                           v
+   PROPOSE: decimated multi-scale    landmark evidence map
+   NCC over the whole frame, in       |
+   a MEASURED scale bracket           |  residual peaks also PROPOSE
+              |                       |  candidates, not just score them
+              +-----------+-----------+
+                          |
+              RESCORE at full reference resolution
+              (candidate crops upsampled to 10x, where
+               cells actually differ -- not at the
+               decimated scale where they are identical)
+                          |
+              DECIDE: appearance + full-res appearance +
+              landmark spread-z. The mandated "closest to
+              centre" rule fires only on a genuine tie.
+                          |
+                          v
+              sub-pixel refinement -> (x, y)
+
+Solvability evidence, computed from the search image alone:
+  induction.py  -- makes the lattice prove its own geometry.
+                   A perfectly inductive lattice is a perfectly
+                   ambiguous one, so failing induction PREDICTS
+                   that the site is localizable (84.6% vs a
+                   49.0% base rate).
 ```
 
 ### Why this beats a bigger backbone here
@@ -425,6 +421,17 @@ construction in a landmark-free array interior, not from threshold fitting.
 | `probes/robustness_sweep.py` | Noise and pitch sweeps -- the two conditions the official test set may not share |
 | `deck/build_deck.js` | Regenerates `deck/DriftSense_Submission.pptx` from the measured numbers in one `FACTS` block |
 
+**Learned-ranking experiments** -- measured, documented, and *not* on the shipped
+path. Kept because the nulls are the argument for the classical choice.
+
+| File | Purpose |
+|---|---|
+| `train_ranker.py` / `ranker.npz` | Listwise learned ranker, 257 params, numpy-loadable. +2 pairs held out, p = 0.69 -- not significant, so not wired in |
+| `probes/rank_features.py` | The 30 per-candidate + per-frame features the ranker sees |
+| `probes/ranker_report.py` | Held-out report with McNemar and a per-landmark breakdown |
+| `probes/landmark_ceiling.py` | The oracle test that located the remaining limit in the features, not the model |
+| `train_reranker.py` / `reranker_model.py` / `probes/reranker_eval.py` | The CNN re-ranker, measured a strict null |
+
 **Submission artefacts.**
 
 | File | Purpose |
@@ -440,22 +447,12 @@ npm install          # once; pptxgenjs only
 node deck/build_deck.js
 ```
 
-**Research path** -- not scored, retained for the architecture argument.
-
-| File | Purpose |
-|---|---|
-| `matcher.py` | Hypothesis-graph matcher with the learned re-ranker and Digital Twin |
-| `hypothesis_graph.py` | Evidence fusion into a normalised belief, plus the commit/abstain decision |
-| `digital_twin.py` | `DriftPrior`: elapsed-time -> expected drift radius, online-updatable |
-| `reranker_model.py` / `train_reranker.py` | Small Siamese CNN (32-d) trained on aperiodic residuals |
-| `evaluate.py` | Runs the research matcher with an online-updating Twin; needs torch |
-
 ## Reproducing the evaluation
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-inference.txt
 
-# 1. generate the three splits (see "Evaluation distribution" above)
+# 1. generate the splits (see "Evaluation distribution" above)
 python dataset_generator.py --n 100 --out dataset_primary --seed 11 --difficulty-mix 0.2 --placement uniform
 
 # 2. score the shipped inference path
@@ -547,10 +544,9 @@ python probes/reranker_eval.py --dataset dataset_primary --dump rep.json
 python probes/reranker_eval.py --replay sel.json rep.json
 ```
 
-Both measured nulls are archived so the result is auditable rather than merely
-asserted: `legacy/reranker_raw_patches_stale.pt` (the superseded raw-patch
-input) and `legacy/reranker_residual_null.pt` (the residual-domain model
-evaluated above). Neither is loaded by `localize.py`, by design.
+The weights themselves are not committed -- they are two measured nulls, and
+`train_reranker.py` regenerates either in about a minute (`--raw` for the
+superseded raw-patch input). Nothing in `localize.py` loads them, by design.
 
 ## On learning the ranking instead of hand-weighting it
 
@@ -665,7 +661,7 @@ than a single argmax.
 - US Patent 9,430,457, *Ambiguity reduction for image alignment applications* (block-wise NCC peak-ambiguity detection, directly analogous to our Stage-2 re-ranking): https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9430457
 
 **Drift-vs-elapsed-time model** (saturating exponential, the functional
-form the Digital Twin fits): thermal drift in precision metrology/inspection
+form the generator's drift model uses): thermal drift in precision metrology/inspection
 stages is driven by heat dissipated in motors and guides diffusing through
 the structure over time, producing a settling-type (saturating) drift
 profile; this is exactly the problem addressed by:
@@ -687,10 +683,10 @@ itself doesn't rotate at 10x zoom).
 
 ## Known limitations (for the "failure mode awareness" grading criterion)
 
-1. **Pure periodic interior is unsolvable from pixels alone.** Stage 2
-   cannot manufacture information the image doesn't contain; 'hard' sites
-   fail 100% of the time by design, and this is verified directly (see
-   Attribution Matrix output, cases B/D).
+1. **Pure periodic interior is unsolvable from pixels alone.** No amount of
+   re-ranking manufactures information the image does not contain; 'hard' sites
+   fail 100% of the time by design, and the generator records that in
+   `landmark_in_fov` so the failure is attributable rather than mysterious.
 2. **A point landmark is not enough; the ranking stage is where it fails.**
    Localization accuracy tracks the *spatial extent* of the aperiodic feature in
    the footprint, not the die architecture: 92.5% at an array corner, 42.1% at a
@@ -709,12 +705,13 @@ itself doesn't rotate at 10x zoom).
    just ambiguous. Only a gate crossing (a true 2D landmark) fully resolves
    FinFET sites; a boundary edge alone is insufficient unless it constrains
    both axes (hence 'array_corner', not a single edge, in the generator).
-4. **The Digital Twin predicts a radius, not a vector.** Direction is not
-   recoverable from elapsed_time_s alone in this design (real deployments
-   would need an additional telemetry channel, e.g. a thermal gradient
-   sensor, to get directionality -- noted as a natural extension).
-5. **Twin calibration needs more sessions to show a clean trend.** With only
-   40 samples and per-pair true drift parameters drawn from a wide range
-   (120-220px, 1800-5400s), Loop 1's online update shows a real but noisy
-   improvement (see `evaluate.py` output); a production deployment would
-   accumulate this over thousands of sites.
+4. **Drift direction is not recoverable from elapsed time.** The generator ties
+   the true offset to `elapsed_time_s` through a saturating thermal model, so a
+   prior can predict how FAR the stage has wandered but not which way. Under
+   `--placement uniform` the pipeline therefore uses no positional prior at all;
+   a real deployment wanting one would need an extra telemetry channel, e.g. a
+   thermal gradient sensor.
+5. **The lattice sensor is tuned to a pitch band.** Accuracy falls away in both
+   directions outside DRAM 9-14px / FinFET 7-11px at search scale -- 20 points
+   of solvable accuracy at `--pitch-shift 8`. See *Robustness* above; this is
+   the largest unquantified risk against an unseen test set.
