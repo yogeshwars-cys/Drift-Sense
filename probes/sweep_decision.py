@@ -1,25 +1,16 @@
 """Sweep decision rules over the cached candidate pools."""
-import json, sys
+import json, os, sys
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from localize import _spread_z as spread_z   # import, never reimplement
 
 CACHE = r'C:\Users\yoges\AppData\Local\Temp\claude\D--Downloads-projects-semicon\e851f7c8-fdb4-4c14-8b50-23b2f7a17ac2\scratchpad\cands.json'
 W_APP, W_FA, W_LM = 1.0, 0.45, 0.50
 LM_Z, LM_NCC = 4.0, 0.10
 
 
-def spread_z(v):
-    v = np.asarray(v, float)
-    if v.size < 2:
-        return np.zeros_like(v)
-    med = np.median(v)
-    mad = np.median(np.abs(v - med))
-    s = 1.4826 * mad
-    if s < 1e-9:
-        s = v.std() or 1e-9
-    return (v - med) / s
-
-
-def decide(row, mode, tie_eps):
+def decide(row, mode, tie_eps, override_rank=3):
     C = row['cands']
     if not C:
         return row['cx'], row['cy']
@@ -40,13 +31,16 @@ def decide(row, mode, tie_eps):
         w = (min(tied, key=lambda k: np.hypot(k['x'] - row['cx'], k['y'] - row['cy']))
              if len(tied) > 1 else ranked[0])
     elif mode == 'lm_gated':
-        # landmark may only override if it ALSO ranks top-3 on the fusion --
-        # i.e. it refines the choice rather than contradicting it
+        # landmark may only override if it ALSO ranks top-N on the fusion --
+        # i.e. it refines the choice rather than contradicting it. rank=None
+        # ("off") disables the override entirely -> pure rank1.
         i = int(np.argmax(z))
-        w = C[i] if (lm_ok and i in list(order[:3])) else ranked[0]
+        gated = lm_ok and override_rank is not None and i in list(order[:override_rank])
+        w = C[i] if gated else ranked[0]
     elif mode == 'lm_gated_tie':
         i = int(np.argmax(z))
-        if lm_ok and i in list(order[:3]):
+        gated = lm_ok and override_rank is not None and i in list(order[:override_rank])
+        if gated:
             w = C[i]
         elif len(tied) > 1:
             w = min(tied, key=lambda k: np.hypot(k['x'] - row['cx'], k['y'] - row['cy']))
@@ -60,22 +54,39 @@ def decide(row, mode, tie_eps):
 def main():
     cache = json.load(open(CACHE))
     variants = sys.argv[1:] or list(cache)
-    print(f'{"front end":8s} {"decision":14s} {"tie_eps":>8}  {"all":>6} {"solvable":>9} {"median":>8}')
+    print(f'{"front end":8s} {"decision":14s} {"rank":>5} {"tie_eps":>8}  '
+          f'{"all":>6} {"solvable":>9} {"median":>8}')
+    ranks = (1, 3, 5, None)
+    eps_list = (0.02, 0.005, 0.002, 0.0)
+    best = None
     for v in variants:
         rows = cache[v]
-        for mode in ('shipped', 'rank1', 'tie_only', 'lm_gated', 'lm_gated_tie'):
-            eps_list = (0.02,) if mode in ('shipped',) else (
-                (0.02, 0.005, 0.002) if 'tie' in mode else (0.02,))
-            for eps in eps_list:
-                err, hard = [], []
-                for r in rows:
-                    x, y = decide(r, mode, eps)
-                    err.append(np.hypot(x - r['gt_x'], y - r['gt_y']))
-                    hard.append(r['difficulty'] == 'hard')
-                e = np.array(err); h = np.array(hard)
-                print(f'{v:8s} {mode:14s} {eps:8.3f}  {100*np.mean(e<=15):5.1f}% '
-                      f'{100*np.mean(e[~h]<=15):8.1f}% {np.median(e[~h]):7.2f}px')
+        combos = [('shipped', 0.02, 3), ('rank1', 0.02, None), ('tie_only', 0.02, None)]
+        for eps in eps_list:
+            if eps != 0.02:
+                combos.append(('tie_only', eps, None))
+        for r in ranks:
+            for mode in ('lm_gated', 'lm_gated_tie'):
+                eps_opts = eps_list if mode == 'lm_gated_tie' else (0.02,)
+                for eps in eps_opts:
+                    combos.append((mode, eps, r))
+        for mode, eps, r in combos:
+            err, hard = [], []
+            for row in rows:
+                x, y = decide(row, mode, eps, override_rank=r)
+                err.append(np.hypot(x - row['gt_x'], y - row['gt_y']))
+                hard.append(row['difficulty'] == 'hard')
+            e = np.array(err); h = np.array(hard)
+            solvable = 100 * np.mean(e[~h] <= 15)
+            med = np.median(e[~h])
+            rlabel = 'off' if r is None else str(r)
+            print(f'{v:8s} {mode:14s} {rlabel:>5} {eps:8.3f}  {100*np.mean(e<=15):5.1f}% '
+                  f'{solvable:8.1f}% {med:7.2f}px')
+            if best is None or solvable > best[0] or (solvable == best[0] and med < best[1]):
+                best = (solvable, med, v, mode, eps, rlabel)
         print()
+    print(f'BEST: {best[2]} {best[3]} rank={best[5]} eps={best[4]} -> '
+          f'{best[0]:.1f}% solvable, {best[1]:.2f}px median')
 
 
 if __name__ == '__main__':

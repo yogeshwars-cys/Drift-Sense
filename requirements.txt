@@ -1,13 +1,27 @@
-# Inference + dataset generation. This is everything `localize.py` and
-# `dataset_generator.py` need, and nothing else.
+# Complete `pip freeze` output from the development environment, per the
+# problem statement's reproducibility requirement.
 #
-# Deliberately torch-free: the shipped inference path uses no learned weights,
-# so a reviewer running localize.py never pays for a 2 GB dependency. The
-# training path is in requirements-train.txt.
+# torch is here because the environment contains the (unshipped) training path.
+# The shipped inference path -- localize.py and dataset_generator.py -- does NOT
+# need it. If you only want to run the inference script, use the 4-package
+# torch-free set instead and skip a ~2 GB download:
 #
-# Lower bounds rather than pins: these are stable, widely-available APIs and a
-# hard pin is a reproducibility hazard on a machine that is not ours.
-numpy>=1.24
-opencv-python>=4.8
-pillow>=10.0
-scipy>=1.10
+#     pip install -r requirements-inference.txt
+#
+# The +cpu build of torch is not on PyPI, hence the index line below.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+filelock==3.32.2
+fsspec==2026.7.0
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+mpmath==1.3.0
+networkx==3.6.1
+numpy==2.5.1
+opencv-python==5.0.0.93
+pillow==12.3.0
+scipy==1.18.0
+setuptools==83.0.0
+sympy==1.14.0
+torch==2.13.0+cpu
+typing_extensions==4.16.0

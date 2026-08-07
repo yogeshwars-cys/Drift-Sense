@@ -82,7 +82,7 @@ def sample_site(rng, dx, dy, placement):
     raise ValueError(f'unknown placement: {placement!r}')
 
 
-def common_capture_params(rng, noisier_search=True):
+def common_capture_params(rng, noise_scale=1.0):
     """Per-pair imaging conditions.
 
     Structure of this dict: anything named *_search or *_ref is drawn
@@ -94,6 +94,12 @@ def common_capture_params(rng, noisier_search=True):
     Search-side degradation is uniformly heavier than reference-side: the test
     set is explicitly promised to be noisier on the search image, and a
     generator that does not reproduce that asymmetry trains for the wrong problem.
+
+    `noise_scale` multiplies the SEARCH-side sensor noise only, so that the
+    "test data will be MORE noisy than your training examples" condition can be
+    reproduced and measured rather than assumed. It is applied after every
+    random draw, so `noise_scale=1.0` reproduces a given seed bit-for-bit and
+    previously generated splits remain valid.
     """
     bg = float(rng.integers(15, 45))
     fg = float(rng.integers(200, 245))
@@ -125,6 +131,13 @@ def common_capture_params(rng, noisier_search=True):
         astig_ratio=float(rng.uniform(1.0, 1.8)),
         astig_angle=float(rng.uniform(0, 180)),
     )
+    if noise_scale != 1.0:
+        # Gaussian sigma scales up directly; the Poisson parameter is an
+        # electron-count scale, so noisier means DIVIDING it -- fewer counts per
+        # grey level is a larger relative shot-noise term.
+        params['gauss_noise_search'] *= noise_scale
+        params['poisson_scale_search'] /= noise_scale
+    params['noise_scale'] = float(noise_scale)
     return params
 
 
@@ -225,8 +238,9 @@ def check_landmark_in_fov(cx, cy, footprint, landmark, defects=None, gates=None,
     return False
 
 
-def generate_dram_pair(rng, pair_id, difficulty, placement='uniform'):
-    pitch = int(rng.integers(9, 15))
+def generate_dram_pair(rng, pair_id, difficulty, placement='uniform',
+                       noise_scale=1.0, pitch_shift=0):
+    pitch = max(5, int(rng.integers(9, 15)) + pitch_shift)
     line_w = int(rng.integers(1, 3))
     via_r = int(rng.integers(3, 6))
     phase = (float(rng.uniform(0, pitch)), float(rng.uniform(0, pitch)))
@@ -270,7 +284,7 @@ def generate_dram_pair(rng, pair_id, difficulty, placement='uniform'):
                              rng.choice(['drop', 'double'])))
             landmark = 'via_defect'
 
-    cp = common_capture_params(rng)
+    cp = common_capture_params(rng, noise_scale=noise_scale)
 
     search = render_dram(SEARCH_SIZE, pitch, line_w, via_r, phase, defects,
                           cp['bg'], cp['fg'], scale=1.0, offset=(0.0, 0.0))
@@ -301,8 +315,9 @@ def generate_dram_pair(rng, pair_id, difficulty, placement='uniform'):
     return to_uint8(search), to_uint8(ref), meta
 
 
-def generate_finfet_pair(rng, pair_id, difficulty, placement='uniform'):
-    pitch = int(rng.integers(7, 12))
+def generate_finfet_pair(rng, pair_id, difficulty, placement='uniform',
+                         noise_scale=1.0, pitch_shift=0):
+    pitch = max(5, int(rng.integers(7, 12)) + pitch_shift)
     fin_w = int(rng.integers(1, 3))
     phase = float(rng.uniform(0, pitch))
     scale_factor, footprint = sample_scale_factor(rng)
@@ -340,7 +355,7 @@ def generate_finfet_pair(rng, pair_id, difficulty, placement='uniform'):
                           float(rng.uniform(150, 300)), float(rng.uniform(15, 30))))
             landmark = 'gate_crossing'
 
-    cp = common_capture_params(rng)
+    cp = common_capture_params(rng, noise_scale=noise_scale)
 
     search = render_finfet(SEARCH_SIZE, pitch, fin_w, gates, phase,
                             cp['bg'], cp['fg'], scale=1.0, offset=(0.0, 0.0))
@@ -386,6 +401,19 @@ def main():
                          'construction. The problem statement asks for "at least '
                          'one" such region, so the default is a minority; set 0.5 '
                          'to reproduce the stress split.')
+    ap.add_argument('--noise-scale', type=float, default=1.0, metavar='K',
+                    help='multiply SEARCH-side sensor noise by K. The statement '
+                         'promises the official test set is MORE noisy than the '
+                         'training examples, so this exists to measure that '
+                         'condition rather than assume it. K=1.0 (default) '
+                         'reproduces a given seed exactly.')
+    ap.add_argument('--pitch-shift', type=int, default=0, metavar='PX',
+                    help='offset the search-scale lattice pitch band by PX. The '
+                         'lattice sensor is the load-bearing assumption in '
+                         'localize.py, and it was tuned against the default band '
+                         '(DRAM 9-14px, FinFET 7-11px). This exists to measure '
+                         'what happens when the test set does not share it. '
+                         '0 (default) reproduces a given seed exactly.')
     ap.add_argument('--placement', choices=('uniform', 'annulus'), default='uniform',
                     help='uniform: the reference may appear anywhere inside the '
                          'search image, per the problem statement. annulus: tied '
@@ -412,7 +440,9 @@ def main():
         style = styles[i % len(styles)]
         difficulty = difficulties[i]
         gen = generate_dram_pair if style == 'dram' else generate_finfet_pair
-        search, ref, meta = gen(rng, i, difficulty, placement=args.placement)
+        search, ref, meta = gen(rng, i, difficulty, placement=args.placement,
+                                noise_scale=args.noise_scale,
+                                pitch_shift=args.pitch_shift)
         search_path = os.path.join(img_dir, f'{i:03d}_{style}_search.png')
         ref_path = os.path.join(img_dir, f'{i:03d}_{style}_ref.png')
         Image.fromarray(search).save(search_path)
@@ -420,6 +450,8 @@ def main():
         meta['search_path'] = search_path
         meta['ref_path'] = ref_path
         meta['placement'] = args.placement
+        meta['noise_scale'] = args.noise_scale
+        meta['pitch_shift'] = args.pitch_shift
         records.append(meta)
         print(f'[{i+1}/{args.n}] {style} difficulty={meta["difficulty"]} '
               f'landmark={meta["landmark"]} gt=({meta["gt_x"]:.1f},{meta["gt_y"]:.1f})')
@@ -429,7 +461,9 @@ def main():
     n_solvable = sum(1 for r in records if r['landmark_in_fov'])
     print(f'\nWrote {len(records)} pairs to {args.out}/ (images/ + ground_truth.json)')
     print(f'  style={args.style}  placement={args.placement}  '
-          f'difficulty_mix={args.difficulty_mix}')
+          f'difficulty_mix={args.difficulty_mix}  '
+          f'noise_scale={args.noise_scale}  '
+          f'pitch_shift={args.pitch_shift}')
     print(f'  landmark in FOV (information-theoretically solvable): '
           f'{n_solvable}/{len(records)}')
 

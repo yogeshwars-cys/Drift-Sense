@@ -364,14 +364,52 @@ python calibrate_gate.py --results primary_results.json --out /tmp/gate.json
 
 ---
 
-## Expected outcome
+## Outcome — MEASURED, replacing the projections above
 
-| after | solvable | note |
-|---|---|---|
-| today | 48.8% | |
-| Step 1 | ~66% | measured |
-| + Steps 6, 7 / NCC | ~70% | inferred from the -1.2 and -2.5 attributions |
-| target | 80% | **no known mechanism — see below** |
+Step 1 is implemented and verified end to end on `dataset_primary`:
+
+| | all | solvable | median | runtime |
+|---|---|---|---|---|
+| before | 39.0% | 48.8% | 26.34px | 3.2s |
+| **after Step 1** | **50.0%** | **62.5%** | **4.9px** | 2.9s |
+| plain-NCC reference | 45.0% | 56.2% | 3.57px | 1.0s |
+
+**+13.7 points solvable, and the median error falls by 5x.** The pipeline now
+beats the 25-line NCC baseline by 6.3 points solvable, which it did not before.
+The abstention layer improved at the same time: `n_near_peaks<=5` now selects 24
+sites at **95.8%** precision (was 30 at 86.7%), and `induction<0 OR
+n_near_peaks<=5` selects 31 at **90.3%**.
+
+**Steps 6, 7 and the NCC arm are REJECTED — measured, none of them pays:**
+
+| front end (all with the Step 1 decision rule) | all | solvable | median |
+|---|---|---|---|
+| shipped front end | 53.0% | **66.2%** | 5.37px |
+| + Step 5 (score field) | 52.0% | 65.0% | 4.96px |
+| + Step 6 (rotation off) | 51.0% | 63.7% | 5.47px |
+| + Step 7 (wider bracket) | 52.0% | 65.0% | 4.96px |
+| NCC front end (linspace sweep) | 50.0% | 62.5% | **2.75px** |
+
+The earlier attributions that motivated Steps 6 and 7 (rotation costing 1.2
+points, the tight bracket costing 2.5) were measured on a dense-argmax harness
+**without the fusion**, and they do not survive contact with the full pipeline —
+they reverse sign. Rotation and the measured bracket are both *helping* once the
+fusion is downstream of them. This is exactly the caveat flagged at the top of
+this plan, now confirmed.
+
+Two honest caveats on the table above: it comes from the offline sweep harness
+(`probes/sweep_decision.py`), which disagrees with the real benchmark by ~3
+pairs (it predicted 66.2% where `benchmark.py` measures 62.5%), and the spreads
+between rows are 1-3 pairs at n=80 — inside noise. Use it to rank options, then
+confirm on the real pipeline. **Nothing here justifies landing Steps 6, 7 or the
+NCC front end.**
+
+Step 5 remains worth landing on **correctness** grounds, not accuracy: it costs
+~1 pair (noise) but stops `n_near_peaks` — the best abstention signal — being
+counted over a field holding two incommensurable kinds of number.
+
+**Revised expectation: ~62-66% solvable is where this plan lands. The route to
+80% is not in it** — see "Not in this plan".
 
 ## Not in this plan
 

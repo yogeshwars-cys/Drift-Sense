@@ -60,11 +60,11 @@ by integer multiples is worse still -- the observed ratios are not integers,
 so the true pitch is not in {p, 2p, 3p, 4p}, and the repair nets +1 pair.
 
 WHAT IT IS FOR. The score predicts LOCALIZATION outcome, with the sign
-inverted from intuition (n=100, point-biserial r = -0.455, p = 2e-6):
+inverted from intuition (n=100, point-biserial r = -0.346, p = 0.00043):
 
     induction FAILS  (n=13)   localization accuracy  84.6%
-    induction PASSES (n=87)   localization accuracy  32.2%
-                              base rate              39.0%
+    induction PASSES (n=87)   localization accuracy  43.7%
+                              base rate              49.0%
 
 A lattice that fails this test is an IRREGULAR lattice -- it contains array
 boundaries, dropped or doubled vias, broken periodicity. That aperiodic
@@ -76,17 +76,17 @@ That makes this a solvability signal computable from the search image ALONE,
 before any correlation is run, and it is partly independent of the signals the
 commit gate already has (n=100, success = within 15px):
 
-    n_near_peaks <= 5   (existing)   30 sites   86.7%
+    n_near_peaks <= 5   (existing)   23 sites   95.7%
     induction < 0       (this)       13 sites   84.6%
-    either                           35 sites   82.9%
-    both                              8 sites  100.0%
+    either                           31 sites   90.3%
+    both                              5 sites  100.0%
 
-Only eight of the thirteen overlap, so this is added to CANDIDATE_FEATURES in
+Only five of the thirteen overlap, so this is added to CANDIDATE_FEATURES in
 commit_gate.py as evidence in its own right rather than as a replacement. Note
-what the union does and does not buy: coverage 30 -> 35 sites for 3.8 points of
-precision, and an eight-site intersection that is perfect on this split. The
-intersection is the interesting tier and the one most likely to be sample
-noise at n=8; treat it as a hypothesis to re-measure, not a result.
+what the union does and does not buy: coverage 23 -> 31 sites at a cost of 5.4
+points of precision, and a five-site intersection that is perfect on this
+split. The intersection is the interesting tier and the one most likely to be
+sample noise at n=5; treat it as a hypothesis to re-measure, not a result.
 
 Reproduce all four claims:
 

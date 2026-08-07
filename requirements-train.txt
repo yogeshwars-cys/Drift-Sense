@@ -1,3 +1,15 @@
 # Training only -- NOT needed to run localize.py or dataset_generator.py.
--r requirements.txt
-torch>=2.0
+# This is the delta between requirements-inference.txt and the full freeze in
+# requirements.txt; installing it is equivalent to installing requirements.txt.
+-r requirements-inference.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.13.0+cpu
+filelock==3.32.2
+fsspec==2026.7.0
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+mpmath==1.3.0
+networkx==3.6.1
+setuptools==83.0.0
+sympy==1.14.0
+typing_extensions==4.16.0

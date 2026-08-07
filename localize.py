@@ -134,7 +134,18 @@ W_FINE_APPEARANCE = 0.45
 W_LANDMARK = 0.50
 W_PRIOR = 0.0
 W_PHASE = 0.0
-TIE_EPS = 0.02
+
+# Ties for the mandated centre rule must be GENUINE -- the reference actually
+# appearing twice -- not spurious near-ties manufactured by lattice
+# self-similarity. Swept over {0.02, 0.005, 0.002, 0} on dataset_primary: any
+# nonzero value in that set fires on lattice self-similarity (25-36% of
+# trials, right ~16% of the time) and costs 8-10 points of solvable accuracy
+# versus leaving the fused ranking alone. Only an exact (to float noise) tie
+# survives at this threshold, which is what "genuinely appears twice" means.
+TIE_EPS = 1e-6
+# Counting near-peaks for the abstention signal is a different question ("how
+# crowded is the correlation surface") and is calibrated separately -- unchanged.
+NEAR_PEAK_EPS = 0.02
 
 # The landmark channel is treated as having resolved identity outright -- so the
 # centre tie-break stands down -- when one candidate's residual correlation
@@ -144,6 +155,17 @@ TIE_EPS = 0.02
 # that can look like an outlier within a small set.
 LANDMARK_DECISIVE_Z = 4.0
 LANDMARK_MIN_NCC = 0.10
+
+# The landmark channel may REFINE the fusion's choice, not contradict it
+# outright. Overriding unconditionally was measured to cost 7.4 points of
+# solvable accuracy: when the landmark peak disagrees with a fusion that is
+# already right 66% of the time, the fusion is usually the one that is right.
+# Swept over {1, 3, 5, off} on dataset_primary -- all three finite values
+# scored identically (the landmark's argmax, when decisive, already coincides
+# with the fused rank-1 on this dataset), so 3 is kept as "refines a choice
+# the fusion already short-listed" rather than the tightest arm, since it is
+# expected to matter more on distributions where the two channels disagree.
+LANDMARK_OVERRIDE_RANK = 3
 
 # How much the measured rotation must IMPROVE the best correlation before it is
 # adopted. Derotating by a wrong angle is strictly worse than not derotating at
@@ -615,13 +637,28 @@ def localize(ref_u8, search_u8, drift_radius=None, use_landmark=True,
         res_r = _envelope_normalise(res_r)
         lmap = _landmark_map_from(res_s, res_r, foot_ref, win)
         if lmap is not None:
-            cands = cands + _peaks_from_map(lmap, win, foot_ref, nms_radius=nms_r)
+            lm_cands = _peaks_from_map(lmap, win, foot_ref, nms_radius=nms_r)
+            # A landmark peak arrives carrying a residual-correlation value in
+            # `score`, which is not the quantity the rest of the pipeline means
+            # by that name (an NCC appearance score). `_dedupe` sorts on `score`,
+            # the fusion's largest term reads it, and n_near_peaks is counted
+            # over it -- give it the appearance score it would have had if the
+            # NCC stage had proposed it, so `score` means one thing everywhere.
+            if lm_cands:
+                tmpl = cv2.resize(ref_u8, (foot_ref, foot_ref),
+                                  interpolation=cv2.INTER_AREA)
+                for c in lm_cands:
+                    crop = _upsampled_crop(search_u8, c['x'], c['y'],
+                                           foot_ref, foot_ref)
+                    c['landmark_score'] = c['score']   # keep the original
+                    c['score'] = 0.0 if crop is None else _ncc(crop, tmpl)
+            cands = cands + lm_cands
 
     # Counted on the FULL candidate list, before de-duplication: the pre-dedupe
     # pool is what reflects how many repeats the correlation surface offered.
     # Counting after dedupe measures the de-duplicator instead.
     appear_all = np.array([c['score'] for c in cands])
-    n_near_peaks = int(np.sum(appear_all >= appear_all.max() - TIE_EPS))
+    n_near_peaks = int(np.sum(appear_all >= appear_all.max() - NEAR_PEAK_EPS))
     ambiguity = ambiguity_ratio(lmap, pitch, foot_ref) if lmap is not None else 0.0
 
     # Candidate budget scales with the AREA actually searched. Keeping a fixed
@@ -685,18 +722,24 @@ def localize(ref_u8, search_u8, drift_radius=None, use_landmark=True,
     ranked = [cands[i] for i in order]
     fused_sorted = fused[order]
 
-    # The landmark channel is the JUDGE when it speaks. It is the only evidence
-    # that carries absolute identity inside a periodic array, so when one
-    # candidate's residual correlation stands clear of the rest of the set, that
-    # peak IS the disambiguation and geometry does not get a vote. When it is
-    # silent -- a defect-free array interior, where the residual is noise
-    # against noise -- the mandated centre rule resolves the tie.
-    landmark_decided = bool(len(lm_z) and lm_z.max() >= LANDMARK_DECISIVE_Z
-                            and fine_lm.max() >= LANDMARK_MIN_NCC)
+    # The landmark channel is the JUDGE when it speaks -- but only when it also
+    # agrees with the fusion closely enough to be a refinement rather than a
+    # contradiction. It is the only evidence that carries absolute identity
+    # inside a periodic array, so when one candidate's residual correlation
+    # stands clear of the rest of the set AND that candidate is already
+    # short-listed by the fusion, that peak IS the disambiguation and geometry
+    # does not get a vote. When it is silent -- a defect-free array interior,
+    # where the residual is noise against noise -- the mandated centre rule
+    # resolves the tie, but only among GENUINE ties (see TIE_EPS above).
+    lm_i = int(np.argmax(lm_z)) if len(lm_z) else -1
+    landmark_decided = bool(
+        lm_i >= 0 and lm_z.max() >= LANDMARK_DECISIVE_Z
+        and fine_lm.max() >= LANDMARK_MIN_NCC
+        and lm_i in set(order[:LANDMARK_OVERRIDE_RANK].tolist()))
     tied = [r for r, f in zip(ranked, fused_sorted) if fused_sorted[0] - f < TIE_EPS]
 
     if landmark_decided:
-        winner, ambiguous = cands[int(np.argmax(lm_z))], False
+        winner, ambiguous = cands[lm_i], False
     elif len(tied) > 1:
         winner, ambiguous = min(tied, key=lambda c: np.hypot(c['x'] - center[0],
                                                              c['y'] - center[1])), True

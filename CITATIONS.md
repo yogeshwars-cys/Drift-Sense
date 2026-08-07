@@ -20,6 +20,14 @@ well approximated as additive Gaussian).
   "Practical Poissonian-Gaussian noise modeling and fitting for
   single-image raw-data." *IEEE Transactions on Image Processing*,
   17(10), 1737-1754. https://doi.org/10.1109/TIP.2008.2001399
+- Healey, G. E., & Kondepudy, R. (1994). "Radiometric CCD camera
+  calibration and noise estimation." *IEEE Transactions on Pattern
+  Analysis and Machine Intelligence*, 16(3), 267-276.
+  https://doi.org/10.1109/34.276126
+- Janesick, J. R. (2001). *Scientific Charge-Coupled Devices*, SPIE
+  Press, ch. 2-4 (shot noise, read noise, and the mixed
+  Poisson-Gaussian sensor model underlying the photon-transfer
+  method).
 
 ## 2. Edge brightening
 
@@ -44,7 +52,8 @@ detected, producing excess brightness at edges relative to flat regions.
 
 **Choice:** Gaussian blur is applied to both images (more on the search
 image); a small relative rotation (±2°) and magnification jitter (±10%
-around nominal 10x) are applied to the search image only.
+around nominal 10x) are applied to the reference image only
+(`dataset_generator.py`, `rot_ref`).
 
 **Justification:** Finite electron-beam spot size and defocus produce a
 blur kernel well approximated by a Gaussian point-spread function in SEM
@@ -54,6 +63,15 @@ tool visits — exactly the "navigation error" the challenge describes,
 which is why the localization algorithm must search a band of scales and
 angles rather than assuming a fixed 10x/0° relationship.
 
+- Reimer, L. (1998). *Scanning Electron Microscopy: Physics of Image
+  Formation and Microanalysis*, 2nd ed., Springer, ch. on probe
+  formation and depth of focus (beam-spot size and defocus as a
+  Gaussian-approximable blur).
+- Mack, C. (2007). *Fundamental Principles of Optical Lithography*,
+  Wiley (stage/tool overlay drift and calibration error between
+  separate exposure or imaging passes, motivating the rotation/scale
+  jitter between the two captures).
+
 ## 4. DRAM word-line/bit-line grid structure
 
 **Choice:** Periodic horizontal/vertical line grid with a via dot at each
@@ -61,12 +79,24 @@ intersection, at a pitch large enough (in "reference-resolution" pixels)
 to survive 10x downsampling without aliasing away.
 
 **Justification:** Real DRAM arrays are built from a repeating word-line /
-bit-line grid with a storage-node contact/via at each active cell; imec's
-public technology overview describes current DRAM generations and their
-half-pitch scaling.
+bit-line grid with a storage-node contact/via at each active cell. Current
+generations are described as "10nm-class," with memory-array active-area
+half-pitches of roughly 10-19nm; a line+space pattern's pitch is 2x the
+half-pitch, consistent with the 4F2/6F2 cell-area conventions used
+industry-wide. Our 9-15px search-scale pitch (90-150px at reference scale)
+places the grid in that regime once the 10x demagnification is applied.
 
 - imec, "DRAM peripheral transistors technology platform":
   https://www.imec-int.com/en/articles/technology-platform-thermally-stable-dram-peripheral-transistors
+- SemiAnalysis, "The Memory Wall: Past, Present, and Future of DRAM"
+  (pitch / feature-size / cell-area relationship, and the 4F2 vs 6F2 cell
+  conventions that fix the word-line:bit-line pitch ratio):
+  https://newsletter.semianalysis.com/p/the-memory-wall
+- Kim, D.-H., et al. / JEDEC DDR device architecture as summarised in
+  Jacob, B., Ng, S. & Wang, D. (2007). *Memory Systems: Cache, DRAM, Disk*,
+  Morgan Kaufmann, ch. 8 ("DRAM Device Organization") -- the standard
+  textbook treatment of the word-line / bit-line / storage-cell array
+  topology this generator renders.
 
 ## 5. FinFET fin/gate structure
 
@@ -75,13 +105,23 @@ bars.
 
 **Justification:** This mirrors the standard FinFET layout — dense
 parallel fins cut by gate lines running perpendicular to them. Published
-metrology target dimensions (e.g., 22nm-node fin pitch ≈ 44nm, gate pitch
-≈ 88nm, per Bunday et al., cited secondhand below) motivate keeping fin
-pitch roughly half of gate pitch in the synthetic generator.
+teardown and metrology data place fin pitch around 30nm and contacted poly
+(gate) pitch around 50nm at advanced nodes, with fin pitch near 40nm at the
+10nm node and gate pitch in the 70-80nm range at 14nm-class nodes. The
+resulting fin:gate pitch ratio of roughly 1:1.5 to 1:2 is what the generator
+reproduces (7-12px fin pitch at search scale), scaled to fit the canvas.
 
+- ASIC North, "FinFET Technology and Layout, Part 1" (fin pitch, contacted
+  poly pitch, and the fin-grid quantisation that forces gate lines to run
+  perpendicular to the fins):
+  https://www.asicnorth.com/blog/part-one-finfet-technology-and-layout/
+- Sicard, E. "Introducing 5-nm FinFET technology" (tabulated fin and gate
+  pitches across 14nm/10nm/7nm/5nm nodes):
+  https://hal.science/hal-03254444/document
 - Bunday, B. D., et al., dimensions as tabulated and cited in: "hp-finite
   element method for simulating light scattering from complex 3D
-  structures" (arXiv:1503.06617), Section 4 / Table 10:
+  structures" (arXiv:1503.06617), Section 4 / Table 10 -- 22nm-node fin
+  pitch ~44nm, gate pitch ~88nm:
   https://arxiv.org/pdf/1503.06617
 
 ## 6. Localization algorithm: normalized cross-correlation
@@ -216,3 +256,47 @@ technique -- registering images by their translation-invariant magnitude spectra
   Transactions on Image Processing* 5(8), 1266-1271.
 - Foroosh, H., Zerubia, J. & Berthod, M. (2002). "Extension of phase
   correlation to subpixel registration." *IEEE TIP* 11(3), 188-200.
+
+## 15. Aperiodic landmarks: array boundaries and via defects
+
+**Choice:** The only content that breaks the lattice's translational symmetry
+is injected deliberately, in three forms: an **array boundary/corner** (the
+edge of the memory or logic block), a **missing or doubled via** (`'drop'` /
+`'double'` in `dataset_generator.py`), and, for FinFET, a **gate crossing**.
+Which of these lies within the reference footprint is recorded per pair as
+`landmark`, and whether it does at all as `landmark_in_fov`.
+
+**Justification:** Two independent reasons, one physical and one
+information-theoretic.
+
+*Physically*, these are the real aperiodic features of a die. Memory and
+logic arrays are finite blocks with abrupt boundaries against periphery
+circuitry, and missing-contact / bridged-contact defects at the storage-node
+via are among the classical, extensively catalogued defect modes in DRAM
+manufacturing — which is precisely why inspection tools look for them.
+
+*Information-theoretically*, a perfectly periodic field is translation-
+invariant modulo the pitch, so absolute position within it is not recoverable
+from the pixels at all: any localization estimate is correct only up to a
+lattice vector. This is the same identifiability argument that motivates
+"unique markers" in wafer-alignment practice, and it is why this generator
+records solvability as ground truth rather than assuming every pair is
+solvable. Measured consequence on our own 100-pair split: sites whose
+footprint contains an array corner localize at **95%**, those containing only
+a single via defect at **19%**.
+
+- Goldstein, J. et al. *Scanning Electron Microscopy and X-Ray Microanalysis*
+  (contrast formation at topographic discontinuities such as block edges,
+  §2/§8 above).
+- Mack, C. (2007). *Fundamental Principles of Optical Lithography*, Wiley,
+  ch. on defectivity — missing/bridged contacts as canonical printed-defect
+  modes and their role in yield inspection.
+- US Patent 9,430,457, "Ambiguity reduction for image alignment
+  applications" — states the periodic-ambiguity problem directly: block-wise
+  NCC over a repeating pattern yields multiple indistinguishable peaks, and
+  disambiguation requires content that is unique within the search range:
+  https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9430457
+- US Patent 11,481,922, "Online navigational drift correction for metrology
+  measurements" — the same navigation-error setting, relying on identifiable
+  (non-repeating) reference structure to re-anchor position:
+  https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/11481922

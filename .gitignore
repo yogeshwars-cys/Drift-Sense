@@ -16,6 +16,13 @@ dataset*/ground_truth.json
 *_results.json
 results/
 
+# Scratch datasets written by probes/robustness_sweep.py
+_sweep/
+
+# Deck build tree. deck/build_deck.js, package.json and the built .pptx ARE
+# checked in -- the deck is a required submission artefact.
+node_modules/
+
 # Jupyter
 .ipynb_checkpoints/
 

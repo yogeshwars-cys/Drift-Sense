@@ -1,0 +1,13 @@
+# Everything `localize.py` and `dataset_generator.py` need, and nothing else.
+#
+# Deliberately torch-free: the shipped inference path uses no learned weights,
+# so a reviewer running localize.py never pays for a ~2 GB dependency. This is
+# the recommended install for evaluating the submission.
+#
+# requirements.txt holds the complete `pip freeze` of the development
+# environment (which also contains the unshipped training path); these four
+# lines are a strict subset of it, at identical pinned versions.
+numpy==2.5.1
+opencv-python==5.0.0.93
+pillow==12.3.0
+scipy==1.18.0
