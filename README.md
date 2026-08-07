@@ -613,6 +613,63 @@ python probes/landmark_ceiling.py        # the oracle-conditioning test
 `ranker.npz` is committed (4 KB, numpy-loadable, no torch) so the result is
 auditable. It is not loaded by `localize.py`, by design.
 
+## Localized full-resolution rescoring: a redistribution, not a gain
+
+`rescore_fullres` compares each candidate's whole upsampled crop against the
+whole reference, so in a periodic array most of the score is lattice that is
+identical at every candidate. `probes/local_rescore.py` instead locates the
+landmark in the reference residual, maps that offset into each candidate's own
+frame via the measured magnification, and compares only there -- so a candidate
+shifted by one lattice vector is asked whether the landmark is where *its own*
+hypothesis says, and finds nothing.
+
+Window size and weight were chosen on `dataset_stress` (71.4% -> 78.6%) and then
+held fixed. Two independent splits:
+
+| | n | global | localized | delta |
+|---|---|---|---|---|
+| **primary** (held out) | 70 | 64.3% | 68.6% | +3 |
+| **train2** (independent, 3x larger) | 216 | 70.8% | 70.8% | **0** |
+
+The overall number is zero at the larger n. The per-landmark breakdown is where
+the real, replicated structure is:
+
+| Landmark | primary (n=70) | train2 (n=216) |
+|---|---|---|
+| via defect | 16.7% -> **66.7%** | 53.1% -> **71.9%** |
+| gate crossing | 33.3% -> 22.2% | 21.4% -> 16.1% |
+| array corner | 92.5% -> 90.0% | 96.9% -> 94.5% |
+
+**Via defects improve on both splits and the other two degrade on both.** On a
+balanced distribution these cancel exactly, which is why the headline is 0.
+
+The cause is that the window is a square sized in lattice pitches around a
+*point*. That is the right shape for a dropped via and the wrong one for a gate
+bar or an array edge, which are extended and mostly fall outside it -- so for
+those the localized comparison discards the very evidence that was working.
+
+Two things worth noting for anyone extending this. Localized **appearance**
+wins, not localized residual: the residual is diffuse, holding only 2.9% of its
+energy in its top 1% of pixels against 2.8% for raw intensity, so restricting it
+spatially adds little. And the channel is a corroborator, not a judge -- alone it
+ranks the true site first 38-48% of the time against the baseline's 64-71%, and
+weights above ~0.75 make things worse on every split.
+
+The obvious next step, untested: size and shape the window from the landmark's
+own extent, or apply the channel only when the landmark is compact. That keeps
+the +6 on via defects without paying the -6 elsewhere. It is written here as a
+next step, not a claim.
+
+**A note on how this was nearly missed.** The first version of this experiment
+reported a clean null at every window size. It was measuring nothing: the
+landmark was located by argmax of the smoothed residual, and the FFT notch rings
+at the frame border, so the argmax sat on the image edge on *every* frame --
+radius 564-619px of a possible 707, and 0% agreement with the true landmark
+position for all three landmark types. A 20% border mask fixed it (via defect
+80%, array corner 69%) and the result above only appeared afterwards. The null
+was plausible, matched three previous nulls, and was wrong. Validating that a
+channel's precondition holds now precedes measuring whether the channel helps.
+
 ## Citations for every augmentation / noise / geometry choice
 
 **SEM edge-brightening** (implemented as a gradient-magnitude-proportional
