@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# NOTE: model weights are deliberately NOT ignored. The problem statement
+# requires "DL Model Weights ... included in a downloadable format ... loaded
+# automatically by your inference script", so reranker.pt must be committed.
+
+# Generated datasets -- reproducible from dataset_generator.py with the seeds
+# recorded in README.md, so they are not checked in.
+dataset*/images/
+dataset*/ground_truth.json
+
+# Per-run result dumps
+*_results.json
+results/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,13 @@
+# Inference + dataset generation. This is everything `localize.py` and
+# `dataset_generator.py` need, and nothing else.
+#
+# Deliberately torch-free: the shipped inference path uses no learned weights,
+# so a reviewer running localize.py never pays for a 2 GB dependency. The
+# training path is in requirements-train.txt.
+#
+# Lower bounds rather than pins: these are stable, widely-available APIs and a
+# hard pin is a reproducibility hazard on a machine that is not ours.
+numpy>=1.24
+opencv-python>=4.8
+pillow>=10.0
+scipy>=1.10
