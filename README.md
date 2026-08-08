@@ -48,11 +48,10 @@ Every row is a complete 100-pair run. The jump from 48.8% to 61.3% solvable
 comes almost entirely from one change in the decision layer, which had let a
 fused ranking that is right 66% of the time be
 overridden by two rules that were, on this distribution, right only 16% of
-the time. Step 5 (giving landmark-proposed candidates a real appearance
-score) rides along for correctness, not accuracy. Steps 6 (rotation bound), 7
-(wider scale bracket), and a plain-NCC front end were all measured and
-**rejected** -- none improved on Step 1 alone by more than sampling noise (1-3
-pairs at n=80); see the plan's "Outcome" section for the full comparison.
+the time. Giving landmark-proposed candidates a real appearance score rides
+along for correctness, not accuracy. A rotation bound, a wider scale bracket
+and a plain-NCC front end were each measured and **rejected** -- none beat the
+decision-layer fix alone by more than sampling noise, 1-3 pairs at n=80.
 
 ```bash
 python benchmark.py --dataset dataset_primary --out primary_results.json
@@ -492,7 +491,7 @@ the text says so and treats the number as an upper bound.
 | `commit_gate.py` / `calibrate_gate.py` | Selective prediction: which answers to trust, calibrated with a Wilson bound over 5 folds |
 | `requirements-inference.txt` | The 4 packages `localize.py` actually needs. `requirements.txt` is the full `pip freeze` |
 | `probes/robustness_sweep.py` | Noise and pitch sweeps -- the two conditions the official test set may not share |
-| `deck/build_deck.js` | Regenerates `deck/DriftSense_Submission.pptx` from the measured numbers in one `FACTS` block |
+| `deck/fill_template.py` | Fills the official i4C Hackathon 2026 template with the measured numbers |
 
 **Learned-ranking experiments** -- measured, documented, and *not* on the shipped
 path. Kept because the nulls are the argument for the classical choice.
@@ -516,9 +515,21 @@ path. Kept because the nulls are the argument for the classical choice.
 Rebuild the deck after changing any measured number:
 
 ```bash
-npm install          # once; pptxgenjs only
-node deck/build_deck.js
+pip install python-pptx
+python deck/fill_template.py
 ```
+
+The deck is built **on the official i4C Hackathon 2026 template**, as issued.
+The instructions slide is deleted as that slide directs; section headings are
+left exactly as given; only the `{placeholder}` bodies are filled. The one
+layout change is on *Impact and Benefits*, where the two stat cards are
+replaced by the success and honest-failure figures the problem statement
+requires. The template itself is not committed here -- it is Applied
+Materials' material, like the problem statement -- so place
+`Idea-Submission-Template_Hackathon-2026-1.pptx` in the repo root to rebuild.
+
+The submission must be uploaded **as PDF**, per the template's own
+instructions.
 
 ## Reproducing the evaluation
 

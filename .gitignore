@@ -33,3 +33,6 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Applied Materials-issued template, like the problem statement: not redistributed
+Idea-Submission-Template_*.pptx
