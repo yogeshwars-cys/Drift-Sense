@@ -118,6 +118,23 @@ def main():
     s = list(prs.slides)          # now: 0 team, 1 problem, 2 idea, 3 solution,
                                   # 4 innovation, 5 impact, 6 tech, 7 links, 8 refs
 
+    # ------------------------------------------------------- 1. team ------
+    # Rows 3 and 4 are dashed rather than left as {Enter Name}: the team is two
+    # people, and a submitted deck should not carry unfilled template stubs.
+    set_lines(by_id(s[0], 54), ['Silicon Bakers'])
+    for sid, val in ((55, 'Yogeshwar S'), (56, '3rd Year'),
+                     (57, 'Ankam Charam Teja'), (58, '3rd Year'),
+                     (59, '—'), (60, '—'),
+                     (61, '—'), (62, '—')):
+        set_lines(by_id(s[0], sid), [val])
+    # the name cells are 1.19in wide, sized for the {Enter Name} stub; the
+    # column has clear run to the ACADEMIC YEAR column at x=9.29
+    for sid in (55, 57, 59, 61):
+        place(s[0], sid, w=4.40)
+    set_lines(by_id(s[0], 63), ['Amrita Vishwa Vidyapeetham'])
+    set_lines(by_id(s[0], 64), ['+91 94878 40396'])
+    set_lines(by_id(s[0], 65), ['yogeshwarsetg@gmail.com'])
+
     # ---------------------------------------------------- 2. problem ------
     place(s[1], 16, w=11.2, h=0.5)
     place(s[1], 17, y=4.15, h=2.80)          # card
