@@ -141,8 +141,9 @@ search are independent sensor captures with different noise/contrast).
 
 # Additions from the rewrite
 
-The sections above cover the original augmentation set. The following were added
-against `IMPLEMENTATION_PLAN.md` §5 and §3, and each is justified independently.
+The sections above cover the original augmentation set. The following model
+SEM artefacts the first pass omitted -- scan-system distortion, charging, field
+shading, astigmatism -- and each is justified independently.
 
 ## 7. Supersampled rasterisation (area-averaged demagnification)
 

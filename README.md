@@ -45,8 +45,8 @@ was cut short before the final full-set run.
 | **current** (+ point-source proposals) | 100 | **50.0%** | **62.5%** | **5.6px** | 3.1s |
 
 Every row is a complete 100-pair run. The jump from 48.8% to 61.3% solvable
-comes almost entirely from one change in `ACCURACY_FIX_PLAN.md` Step 1: the
-decision layer let a fused ranking that is right 66% of the time be
+comes almost entirely from one change in the decision layer, which had let a
+fused ranking that is right 66% of the time be
 overridden by two rules that were, on this distribution, right only 16% of
 the time. Step 5 (giving landmark-proposed candidates a real appearance
 score) rides along for correctness, not accuracy. Steps 6 (rotation bound), 7
@@ -191,9 +191,9 @@ proposal stage degrades before ranking ever runs.
 **This is the largest unquantified risk in the submission**, and it is quantified
 here rather than left implicit: Applied Materials generate their test set with
 parameters known only to them. Two honest mitigations, neither implemented: widen
-the tuned band (costs accuracy at the centre, per Step 7 in
-`ACCURACY_FIX_PLAN.md`, which was measured and rejected), or detect the
-off-band condition and widen the bracket only then -- note `scale_ok` drops
+the tuned band (measured and rejected -- it costs accuracy at the centre for
+frames that were never off-band), or detect the off-band condition and widen
+the bracket only then -- note `scale_ok` drops
 95% -> 85% at -3, so the sensor does partially know when it is out of its range.
 
 The `--noise-scale 1.0` arm reproduces `dataset_primary` bit-for-bit (49.0% /
@@ -253,11 +253,11 @@ on a different one:
   bracketing tightly at all (42.5%), on either an 8.5-11.5 prior or a
   deliberately wide 6-16 one. Repairing the pitch by integer multiples is
   worse: the observed errors are not integer harmonics, so the repair nets +1
-  pair. See `induction.py`. `ACCURACY_FIX_PLAN.md` Step 7 later tried a
-  narrower, conditional form of the same idea -- a modest span floor on every
-  frame, plus extra widening only on the 13 frames induction actually flags --
-  and it was rejected too: measured against the fixed Step 1 decision layer it
-  did not beat leaving the bracket alone by more than sampling noise. Both
+  pair. See `induction.py`. A narrower, conditional form of the
+  same idea was tried afterwards -- a modest span floor on every frame, plus
+  extra widening only on the 13 frames induction actually flags -- and was
+  rejected too: measured against the corrected decision layer it did not beat
+  leaving the bracket alone by more than sampling noise. Both
   forms of this idea are nulls; only the induction *signal* earns its place.
 - **Adding `induction_score` to the calibrated gate does not rescue it.** With
   six candidate features the five folds now select three different ones
