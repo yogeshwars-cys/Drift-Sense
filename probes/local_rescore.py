@@ -40,40 +40,20 @@ from lattice import (estimate_scale, aperiodic_residual, scale_uncertainty,
 TOL = 15.0
 
 
-BORDER_FRAC = 0.20
-
-
-def landmark_site(res_ref, pitch_ref, border_frac=BORDER_FRAC):
-    """Where in the reference does the aperiodic content actually live?
-
-    Two things have to be right or this returns garbage.
-
-    Smoothing at the lattice scale, so a single bright sensor-noise pixel
-    cannot define the window.
-
-    And a BORDER MASK. The residual comes from an FFT notch, which rings at
-    the frame edges, and the reference has rotation padding there as well.
-    Un-masked, the argmax lands on the border on essentially every frame:
-    measured across 30 pairs it sat at radius 564-619px of a possible 707 and
-    found the true landmark 0% of the time, for all three landmark types.
-    That silently turned an earlier version of this probe into a test of the
-    border artefact rather than of the landmark."""
-    n = res_ref.shape[0]
-    k = max(3, int(round(pitch_ref / 3.0)) | 1)
-    sm = cv2.GaussianBlur(np.abs(res_ref.astype(np.float32)), (k, k), 0)
-    b = int(round(border_frac * n))
-    inner = sm[b:n - b, b:n - b]
-    iy, ix = np.unravel_index(int(np.argmax(inner)), inner.shape)
-    ix += b
-    iy += b
-    return float(ix), float(iy), float(sm[iy, ix]), float(inner.mean())
+# The landmark finder and its border mask now live in localize.py, where they
+# ship. Importing rather than copying means this probe measures the code that
+# actually runs -- a copy would silently drift from it, and the border mask is
+# exactly the kind of "magic constant" a copy loses.
+BORDER_FRAC = L.DOG_BORDER_FRAC
+landmark_site = L._landmark_site
 
 
 def local_scores(search_u8, ref_u8, res_search, res_ref, cands, foot_exact,
                  pitch_ref, box_pitches):
     """NCC restricted to the landmark neighbourhood, appearance and residual."""
     n = ref_u8.shape[0]
-    lx, ly, peak, mean = landmark_site(res_ref, pitch_ref)
+    lx, ly = landmark_site(res_ref, pitch_ref)
+    peak = mean = 0.0
     side = int(round(box_pitches * pitch_ref))
     side = int(np.clip(side, 24, n // 3))
     h = side // 2

@@ -44,7 +44,7 @@ was cut short before the final full-set run.
 | rewrite + accuracy-fix pass | 100 | 49.0% | 61.3% | 5.9px | 2.9s |
 | **current** (+ point-source proposals) | 100 | **50.0%** | **62.5%** | **5.6px** | 3.1s |
 
-Every row is a complete 100-pair run. The jump from 48.8% to 61.2% solvable
+Every row is a complete 100-pair run. The jump from 48.8% to 61.3% solvable
 comes almost entirely from one change in `ACCURACY_FIX_PLAN.md` Step 1: the
 decision layer let a fused ranking that is right 66% of the time be
 overridden by two rules that were, on this distribution, right only 16% of
@@ -147,7 +147,9 @@ matcher is.
 The statement promises the official test set is **more noisy** than ours, and
 says nothing about its lattice pitch. Both are now measured rather than assumed,
 via two controlled sweeps -- identical seed, geometry, placement and ground
-truth across arms, only the swept variable changes:
+truth across arms, only the swept variable changes. Both were run in the
+`--no-dog` configuration, so their baseline row is 49.0% / 61.2% rather than
+the current default:
 
 ```bash
 python probes/robustness_sweep.py noise    # --noise-scale 1, 2, 3
@@ -441,6 +443,39 @@ coverage-precision point is optimistic; on a deployment they should be set on a
 held-out calibration split. The 100% recall of the unidentifiability detector
 is the more robust claim -- it comes from the residual channel being flat by
 construction in a landmark-free array interior, not from threshold fitting.
+
+## Evidence map -- which claim rests on what
+
+Every quantitative claim in this README is reproducible from one command, and
+most are corroborated by a second, independent measurement. Where a claim rests
+on a single measurement, it says so.
+
+| Claim | Produced by | Corroborated by |
+|---|---|---|
+| 50.0% / 62.5% accuracy | `benchmark.py --dataset dataset_primary` | the `--no-dog` A/B arm, same code |
+| Accuracy is set by landmark type, not architecture | `primary_results.json` grouped by `landmark` | the per-landmark rows of *every* later experiment agree: corner ~92%, gate ~33-44%, via ~17-19% |
+| The loss is ranking, not proposal | `probes/rank_probe.py` | the layer budget: 10 lost to proposal vs 22 to ranking |
+| Magnification measured to 0.10% | `primary_results.json` vs ground truth | `probes/phase_test.py`; and the never-proposed pairs having *better* scale than average rules scale out as the proposal cause |
+| Noise costs nothing | `probes/robustness_sweep.py noise` | the `noise-scale 1.0` arm reproduces `dataset_primary` bit-for-bit, which validates the whole sweep |
+| Pitch is the real exposure | `probes/robustness_sweep.py pitch` | `scale_ok` falls 95% -> 85% off-band, so the sensor's own diagnostic agrees |
+| The CNN re-ranker is a null | `probes/reranker_eval.py` | the complementarity table (0 cases) and the weight sweep (picks 0) agree independently |
+| A learned ranker gains little | `probes/ranker_report.py` | `probes/landmark_ceiling.py`: an oracle told the landmark type does no better |
+| Induction predicts solvability | `probes/induction_probe.py` | it is computed from the search image alone, before any correlation, so it fails independently of the matched channels |
+| DoG proposals recover via defects | `probes/point_channel.py` | two splits, zero losses on either; and the probe calls `localize._dog_vote`, so it measures the shipped code |
+| The border mask is load-bearing | the 0%-agreement measurement in `_landmark_site` | the localized-rescoring result only appeared after the fix |
+
+Two structural notes on how these hold together:
+
+**Probes import the shipped implementation.** `probes/local_rescore.py` and
+`probes/point_channel.py` both bind `landmark_site = localize._landmark_site`
+and vote through `localize._dog_vote` rather than re-implementing them. A copy
+would drift from what ships, and the border mask is exactly the sort of
+constant a copy loses.
+
+**Splits never do double duty.** Anything with a fitted parameter is selected on
+one split and reported on another: seed 101 or 77 to train, seed 22 to select,
+seed 11 to report. Where a sweep chose its own best cell on the reported split,
+the text says so and treats the number as an upper bound.
 
 ## Files
 

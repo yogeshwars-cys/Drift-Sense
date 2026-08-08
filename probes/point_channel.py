@@ -40,7 +40,8 @@ import localize as L
 from lattice import (estimate_scale, aperiodic_residual, scale_uncertainty,
                      foot_bracket, phase_lock, snap_to_phase,
                      relative_rotation, rotate)
-from probes.local_rescore import landmark_site, BORDER_FRAC
+BORDER_FRAC = L.DOG_BORDER_FRAC
+landmark_site = L._landmark_site
 
 TOL = 15.0
 MAX_BLOBS = 12
@@ -143,18 +144,17 @@ def build(dataset, limit=0):
 
         # ---- 1. DoG proposals: each blob votes for a centre --------------
         pitch_ref = pitch * scale_est
-        lx, ly, _, _ = landmark_site(res_r, pitch_ref)
+        lx, ly = landmark_site(res_r, pitch_ref)
         n = r.shape[0]
         foot_exact = n / float(scale_est)
         kk = foot_exact / n                       # ref px -> search px
         ox, oy = (lx - n / 2.0) * kk, (ly - n / 2.0) * kk
         via_sigma = max(1.5, pitch / 4.0)
-        dog, blobs = dog_blobs(res_s, via_sigma)
-        voted = [dict(x=float(bx - ox), y=float(by - oy), score=0.0,
-                      foot=float(foot_exact), src='dog')
-                 for bx, by, _ in blobs]
-        voted = [c for c in voted
-                 if 0 <= c['x'] < s.shape[1] and 0 <= c['y'] < s.shape[0]]
+        # Vote with the SHIPPED implementation, so this probe corroborates
+        # localize.py rather than a re-implementation of it. dog_blobs below is
+        # retained only for the per-candidate DoG-response feature.
+        voted = L._dog_vote(s, r, res_s, res_r, pitch, scale_est, foot_ref)
+        dog, _ = dog_blobs(res_s, via_sigma)
 
         merged = L._dedupe(base_c + voted, radius=nms_r, keep=keep + len(voted))
         d = np.array([np.hypot(c['x'] - gx, c['y'] - gy) for c in merged])
