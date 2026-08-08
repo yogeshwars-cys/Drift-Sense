@@ -16,8 +16,8 @@ const OUT = path.join(__dirname, "DriftSense_Submission.pptx");
 // ---------------------------------------------------------------- facts ----
 const F = {
   // benchmark.py --dataset dataset_primary  (n=100)
-  accAll: "49.0%",
-  accSolvable: "61.2%",
+  accAll: "50.0%",
+  accSolvable: "62.5%",
   accTight: "37.0%",
   medianSolvable: "5.9px",
   runtimeMean: "2.9s",
@@ -27,6 +27,7 @@ const F = {
   accGate: "42.1%",
   accVia: "19.0%",
   proposed: "87.5%",
+  dogRecall: "87.5% -> 91.2%",
   // primary_results.json vs ground truth (median; p90 is 6.9%), probes/rot_probe.py
   scaleErr: "0.10%",
   rotErr: "0.15°",

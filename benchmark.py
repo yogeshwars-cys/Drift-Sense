@@ -134,6 +134,7 @@ def main():
     # not shadow it with a second copy that silently drifts out of sync.
     ap.add_argument('--drift-radius', type=float, default=None)
     ap.add_argument('--no-landmark', action='store_true')
+    ap.add_argument('--no-dog', action='store_true')
     ap.add_argument('--no-phase-lock', action='store_true')
     ap.add_argument('--no-rotation', action='store_true')
     ap.add_argument('--label', default=None)
@@ -147,7 +148,8 @@ def main():
         recs = recs[:args.limit]
     kw = dict(use_landmark=not args.no_landmark,
               use_phase_lock=not args.no_phase_lock,
-              use_rotation=not args.no_rotation)
+              use_rotation=not args.no_rotation,
+              use_dog=not args.no_dog)
     if args.drift_radius is not None:
         kw['drift_radius'] = args.drift_radius
     radius = 'full-frame' if args.drift_radius is None else f'{args.drift_radius:.0f}px'

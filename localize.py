@@ -300,6 +300,68 @@ def _landmark_map(search_u8, ref_u8, foot, window, pitch_search=None):
     return _landmark_map_from(res_s, res_r, foot, window), residual_saliency(res_r)
 
 
+DOG_BORDER_FRAC = 0.20   # see _landmark_site: the notch rings at the frame edge
+DOG_MAX_BLOBS = 12
+
+
+def _landmark_site(res_ref, pitch_ref, border_frac=DOG_BORDER_FRAC):
+    """Where in the REFERENCE does the aperiodic content sit?
+
+    The border mask is not optional. `aperiodic_residual` is an FFT notch and
+    rings at the frame edge, and the reference additionally carries rotation
+    padding there. Without the mask the argmax lands on the border on
+    essentially every frame -- measured across 30 pairs it sat at radius
+    564-619px of a possible 707 and agreed with the true landmark position 0%
+    of the time, for all three landmark types. With it: via defects 80%,
+    array corners 69%.
+    """
+    n = res_ref.shape[0]
+    k = max(3, int(round(pitch_ref / 3.0)) | 1)
+    sm = cv2.GaussianBlur(np.abs(res_ref.astype(np.float32)), (k, k), 0)
+    b = int(round(border_frac * n))
+    inner = sm[b:n - b, b:n - b]
+    iy, ix = np.unravel_index(int(np.argmax(inner)), inner.shape)
+    return float(ix + b), float(iy + b)
+
+
+def _dog_vote(search_u8, ref_u8, res_s, res_r, pitch, scale_est, foot_ref):
+    """Point-source proposals: blob-detect, then vote for the site centre.
+
+    A Difference of Gaussians at the via's own scale responds to isolated
+    contacts, not to the lattice (already spectrally absent from `res_s`) and
+    not to broad structure. Crucially it does not average over the footprint,
+    so a one-cell anomaly is not divided by 78.
+
+    Each blob is then a Hough-style vote. A candidate centre asserts both
+    where the reference sits and at what magnification, so the reference's
+    landmark offset maps into the search frame directly: a blob at b with a
+    reference landmark at offset d implies a centre at b - d.
+    """
+    n = ref_u8.shape[0]
+    foot_exact = n / float(scale_est)
+    lx, ly = _landmark_site(res_r, pitch * scale_est)
+    k = foot_exact / n                                  # reference px -> search px
+    ox, oy = (lx - n / 2.0) * k, (ly - n / 2.0) * k
+
+    sigma = max(1.5, pitch / 4.0)
+    a = np.abs(res_s.astype(np.float32))
+    d = cv2.GaussianBlur(a, (0, 0), sigma) - cv2.GaussianBlur(a, (0, 0), sigma * 1.6)
+    nms = max(3, int(round(sigma * 3)))
+    mx = cv2.dilate(d, np.ones((nms, nms), np.uint8))
+    hit = (d >= mx - 1e-9) & (d > d.mean() + d.std())
+    ys, xs = np.nonzero(hit)
+    if not len(xs):
+        return []
+    order = np.argsort(-d[ys, xs])[:DOG_MAX_BLOBS]
+    H, W = search_u8.shape
+    out = []
+    for i in order:
+        cx, cy = float(xs[i]) - ox, float(ys[i]) - oy
+        if 0 <= cx < W and 0 <= cy < H:
+            out.append(dict(x=cx, y=cy, score=0.0, foot=float(foot_exact)))
+    return out
+
+
 def _spread_z(values):
     """How far each value stands outside the spread of its own set.
 
@@ -510,7 +572,7 @@ def _subpixel(search_u8, ref_u8, x, y, foot):
 
 def localize(ref_u8, search_u8, drift_radius=None, use_landmark=True,
              use_phase_lock=True, use_rotation=True, full_search=False,
-             scale_span=None, w_phase=W_PHASE, w_prior=W_PRIOR):
+             scale_span=None, w_phase=W_PHASE, w_prior=W_PRIOR, use_dog=True):
     """-> (x, y, diagnostics). Search-image pixel coordinates, sub-pixel.
 
     drift_radius: optional bound (px) on how far from the frame centre the site
@@ -653,6 +715,24 @@ def localize(ref_u8, search_u8, drift_radius=None, use_landmark=True,
                     c['landmark_score'] = c['score']   # keep the original
                     c['score'] = 0.0 if crop is None else _ncc(crop, tmpl)
             cands = cands + lm_cands
+
+        # Point-source proposals. The landmark map above correlates the two
+        # residuals over the WHOLE footprint, so a dropped via -- one cell of
+        # ~78 -- is ~1.3% of it and routinely raises no peak at all. Measured:
+        # 9 of the 10 solvable sites that nothing above proposes are via
+        # defects. A blob detector at the via's own scale does not average
+        # over the footprint, so it is not diluted; see _dog_vote.
+        if use_dog:
+            dog_cands = _dog_vote(search_u8, ref_u8, res_s, res_r,
+                                  pitch, scale_est, foot_ref)
+            if dog_cands:
+                tmpl = cv2.resize(ref_u8, (foot_ref, foot_ref),
+                                  interpolation=cv2.INTER_AREA)
+                for c in dog_cands:
+                    crop = _upsampled_crop(search_u8, c['x'], c['y'],
+                                           foot_ref, foot_ref)
+                    c['score'] = 0.0 if crop is None else _ncc(crop, tmpl)
+                cands = cands + dog_cands
 
     # Counted on the FULL candidate list, before de-duplication: the pre-dedupe
     # pool is what reflects how many repeats the correlation surface offered.
@@ -801,6 +881,10 @@ def main():
                          'when the assumption does not hold.')
     ap.add_argument('--no-landmark', action='store_true',
                     help='disable the aperiodic residual channel')
+    ap.add_argument('--no-dog', action='store_true',
+                    help='disable point-source (blob) proposals. They recover '
+                         'via-defect sites that the footprint-wide residual '
+                         'correlation is too diluted to propose at all.')
     ap.add_argument('--no-phase-lock', action='store_true',
                     help='disable the cross-image lattice phase constraint')
     ap.add_argument('--no-rotation', action='store_true',
@@ -823,6 +907,7 @@ def main():
     t0 = time.time()
     x, y, diag = localize(ref, search, drift_radius=args.drift_radius,
                           use_landmark=not args.no_landmark,
+                          use_dog=not args.no_dog,
                           use_phase_lock=not args.no_phase_lock,
                           use_rotation=not args.no_rotation)
     diag['runtime_sec'] = round(time.time() - t0, 3)

@@ -41,7 +41,8 @@ was cut short before the final full-set run.
 | pre-rewrite matcher | 100 | 22.0% | 27.5% | -- | 1.5s |
 | rewrite, one-tier + pre-tune weights | 100 | 41.0% | 51.2% | 10.6px | 7.8s |
 | shipped (pre accuracy-fix pass) | 100 | 39.0% | 48.8% | 26.3px | 1.9s |
-| **current** | 100 | **49.0%** | **61.2%** | **5.9px** | 2.9s |
+| rewrite + accuracy-fix pass | 100 | 49.0% | 61.3% | 5.9px | 2.9s |
+| **current** (+ point-source proposals) | 100 | **50.0%** | **62.5%** | **5.6px** | 3.1s |
 
 Every row is a complete 100-pair run. The jump from 48.8% to 61.2% solvable
 comes almost entirely from one change in `ACCURACY_FIX_PLAN.md` Step 1: the
@@ -57,6 +58,43 @@ pairs at n=80); see the plan's "Outcome" section for the full comparison.
 python benchmark.py --dataset dataset_primary --out primary_results.json
 ```
 
+### Point-source proposals (`--no-dog` to disable)
+
+The footprint-wide residual correlation is too diluted to propose a dropped
+via at all: **9 of the 10 solvable sites that nothing proposes are via
+defects**. A Difference-of-Gaussians detector at the via's own scale does not
+average over the footprint, so it is not divided by 78. Each blob then votes
+for a centre -- reference landmark at offset `d`, blob at `b`, implied centre
+`b - d`.
+
+Proposal recall, i.e. is the true site in the pool at all:
+
+| Split | baseline | +DoG | gained | lost |
+|---|---|---|---|---|
+| stress | 84.0% | **94.0%** | 5 | **0** |
+| primary | 87.5% | **91.2%** | 3 | **0** |
+
+Every recovered site is a via defect, and **nothing is lost on either split**.
+End-to-end, same code with only `use_dog` toggled:
+
+| | solvable <=15px | all <=15px | solvable median | <=50px |
+|---|---|---|---|---|
+| `--no-dog` | 61.3% | 49.0% | 5.9px | 72.5% |
+| **default** | **62.5%** | **50.0%** | **5.6px** | **73.8%** |
+
+**+1 pair, which is not significant at n=100.** Three sites enter the pool and
+one converts, because via defects fail at the ranking layer too and this fixes
+only proposal. It is on by default anyway, on three grounds: the proposal gain
+is strictly dominant (zero losses over 130 pairs on two splits), the median
+error improves, and the upside scales with how many point defects the unseen
+test set contains while the measured downside is zero.
+
+One cost, recorded rather than buried: the abstention signals get noisier,
+because a larger pool changes what "near peak" counts. `n_near_peaks<=5` goes
+from 23 sites at 95.7% precision to 25 at 88.0%, and the union rule from 90.3%
+to 84.8%. The per-landmark and per-layer analyses below were measured in the
+`--no-dog` configuration.
+
 Accuracy on the unsolvable 20% is **0.0%**, and that is the expected result --
 those trials place the true site deep in a defect-free periodic array where no
 landmark is in the field of view, so nothing in the pixels distinguishes the
@@ -64,7 +102,7 @@ correct cell from its neighbours.
 
 ### Read the number by regime, not as one figure
 
-The headline 49.0% is a weighted average over a distribution *we* chose. What
+The headline 50.0% is a weighted average over a distribution *we* chose. What
 actually determines accuracy is **which aperiodic feature is inside the
 reference footprint** -- and that turns out to explain essentially all of the
 variance, including the apparent DRAM/FinFET gap:
@@ -96,11 +134,11 @@ python probes/rank_probe.py dataset_primary   # proposal vs ranking split
 
 | Split | n | solvable | <=15px | solvable <=15px | s/pair |
 |---|---|---|---|---|---|
-| primary (20% unsolvable, uniform) | 100 | 80 | **49.0%** | **61.2%** | 2.94 |
+| primary (20% unsolvable, uniform) | 100 | 80 | **50.0%** | **62.5%** | 3.1 |
 | stress (50% unsolvable, uniform) | 100 | 50 | 30.0% | 60.0% | 4.51 |
 
-The solvable column barely moves (61.2 vs 60.0) while the headline column swings
-19 points. That is the point of reporting both: the
+The solvable column barely moves (62.5 vs 60.0) while the headline column swings
+20 points. That is the point of reporting both: the
 headline tracks how much unsolvable material a split contains, not how good the
 matcher is.
 
