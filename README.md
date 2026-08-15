@@ -1,4 +1,10 @@
-# Drift-Sense: Navigation-Error Recovery for Wafer Inspection
+# Drift-Sense: Navigation-Error Recovery for Wafer Inspection 
+
+**Silicon Bakers**
+Team Leader: Yogeshwar S
+Member 1: Ankam Charan Teja
+Member 2: Aranya Roy
+Member 3: Suhail Shah
 
 Find where a 1000x1000 reference pattern, shrunk ~10x, sits inside a 1000x1000
 search image of a highly periodic die layout.
