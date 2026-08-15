@@ -1,8 +1,7 @@
 # Drift-Sense: Navigation-Error Recovery for Wafer Inspection 
 
 **Silicon Bakers**
-Team Leader: Yogeshwar S,
-Member 1: Ankam Charan Teja,
+Team Leader: Yogeshwar S,                                                                                                                                  Member 1: Ankam Charan Teja,
 Member 2: Aranya Roy,
 Member 3: Suhail Shah.
 
